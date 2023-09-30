@@ -1,0 +1,80 @@
+pipeline {
+    agent any
+    
+    tools {
+        jdk 'jdk11'
+        maven 'maven3'
+    }
+    
+    environment {
+        SCANNER_HOME=tool 'sonar-scanner'
+    }
+
+    stages {
+        stage('Git Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/thoufeeks/Devops-CICD-New.git'
+            }
+        }
+        stage('Code Compile') {
+            steps {
+                sh 'mvn clean compile'
+            }
+        }
+
+        
+        stage(" Sonarqube Analysis "){
+            steps{
+                 withSonarQubeEnv('sonar-scanner') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Java-webapp \
+                    -Dsonar.java.binaries=. \
+                    -Dsonar.projectKey=Java-webapp '''
+                    
+                 }
+            }
+        }
+        stage('Trivy Scan') {
+            steps {
+                sh " trivy fs --security-checks vuln,config /var/lib/jenkins/workspace/cicd-pipeline-test "
+            }
+        }
+    
+        stage('Code build') {
+            steps {
+                sh "mvn clean install"
+            }
+        }
+    
+        stage('Docker Build') {
+            steps {
+                script{
+                    withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker-latest') {
+                        sh "docker build -t webapp ."
+                        
+                    }
+                }
+            }
+        }
+        stage('Docker Push') {
+            steps {
+                script{
+                    withDockerRegistry(credentialsId:  'docker-cred', toolName: 'docker-latest') {
+                        sh "docker tag webapp thoufeek/web-app:$BUILD_ID"
+                        sh "docker push thoufeek/web-app:$BUILD_ID"
+                    }    
+                }
+
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    kubeconfig(credentialsId: 'k8s', serverUrl: '') {
+                        sh ('kubectl apply -f  deploymentservice.yaml')
+                    }
+                }
+            }
+        }
+    }
+}    
+    
